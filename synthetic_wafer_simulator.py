@@ -48,6 +48,9 @@ class BaseRadialEffects:
     """
     First effect in the pipeline. Initializes all on-wafer dies to GOOD or DEFECTIVE
     based on radial region defect rates. Must run before any other effects.
+
+    Attributes:
+
     """
 
     def __init__(self, rng):
@@ -94,12 +97,18 @@ class YieldAnalyzer:
 
 
 class EdgeRing:
+    """
+    Applies EdgeRing defect to wafer
 
+    Attributes:
+        rng (np.random.Generator): random number generator
+        defect_rate (float): defect rate/percentage of wafer
+        edge_reg (float): distance of defect from center in percentage and later to be multiplied by radius
+    """
     def __init__(self, rng, defect_rate=None, edge_reg=None):
         self.rng = rng
-
         self.defect_rate = self.rng.uniform(0.5, 0.8) if defect_rate is None else defect_rate
-        self.edge_reg = self.rng.uniform(0.8, 0.92) if edge_reg is None else edge_reg  # distance from center
+        self.edge_reg = self.rng.uniform(0.8, 0.92) if edge_reg is None else edge_reg
 
     def apply(self, wafer):
         mask = (wafer.dist > self.edge_reg * wafer.radius) & (wafer.dist < wafer.radius)
@@ -110,14 +119,21 @@ class EdgeRing:
 
 
 class EdgeLoc:
+    """
+    Applies EdgeLoc defect to wafer
 
+    Attributes:
+        edge_reg (float): distance of defect from center in percentage and later to be multiplied by radius
+        circ_perc (float): how much of wafer circumference that the EdgeLoc defect will be applied to
+        angle (float): which angle in wafer that the EdgeLoc defect will be applied to
+    """
     def __init__(self, rng, defect_rate=None, edge_reg=None, circ_perc=None, angle=None):
         self.rng = rng
 
         self.defect_rate = self.rng.uniform(0.5, 0.8) if defect_rate is None else defect_rate
-        self.edge_reg = self.rng.uniform(0.8, 0.92) if edge_reg is None else edge_reg  # location of EdgeLoc defect
-        self.circ_perc = self.rng.uniform(0.05, 0.15) if circ_perc is None else circ_perc  # how large EdgeLoc is
-        self.angle = self.rng.uniform(-np.pi, np.pi) if angle is None else angle  # determines where EdgeLoc resides
+        self.edge_reg = self.rng.uniform(0.8, 0.92) if edge_reg is None else edge_reg
+        self.circ_perc = self.rng.uniform(0.05, 0.15) if circ_perc is None else circ_perc
+        self.angle = self.rng.uniform(-np.pi, np.pi) if angle is None else angle
 
     def apply(self, wafer):
         theta = np.arctan2(wafer.y - wafer.center, wafer.x - wafer.center)  # converts angle into degree coordinates
@@ -131,13 +147,20 @@ class EdgeLoc:
 
 
 class Center:
+    """
+    Applies Center defect to wafer
 
+    Attributes:
+        center_dist (float): how big center defect is, in percentage
+        offset (float) : how offset the center is from
+        offset_prob (float): chances of offset happening, if larger then likelier
+    """
     def __init__(self, rng, center_dist=None, defect_rate=None, offset=0.05, offset_prob=0.5):
         self.rng = rng
-        self.center_dist = self.rng.uniform(10, 20) if center_dist is None else center_dist  # how big center defect is
         self.defect_rate = self.rng.uniform(0.7, 0.9) if defect_rate is None else defect_rate
-        self.offset = offset  # how offset the center is from regular
-        self.offset_prob = offset_prob  # the chances of it happening, if larger then more likely
+        self.center_dist = self.rng.uniform(0.3, 0.6) if center_dist is None else center_dist
+        self.offset = offset
+        self.offset_prob = offset_prob
 
     def apply(self, wafer):
         dist = wafer.dist
@@ -148,7 +171,7 @@ class Center:
             dist = np.sqrt((wafer.center + offset_x - wafer.x) ** 2 + (wafer.center + offset_y - wafer.y) ** 2)
 
         normalized_dist = dist / self.center_dist  # normalizing distance
-        local_defect = self.defect_rate * (1 - normalized_dist)  # adjusting defect rate locally for a gradient
+        local_defect = self.defect_rate*wafer.radius * (1 - normalized_dist)  # adjusting defect rate for gradient
         local_defect_prob = np.clip(local_defect, 0, 1)  # ensuring values stay in range
         center_mask = (dist < self.center_dist)
 
@@ -198,21 +221,21 @@ class Scratch:
         self.angle = self.rng.uniform(-np.pi, np.pi) if angle is None else angle
         self.vector = (np.cos(self.angle), np.sin(self.angle))
         if loc is None:
-            self.loc = (self.rng.uniform(0, 64), np.random.uniform(0, 64))
+            self.loc = (self.rng.uniform(0, 64), self.rng.uniform(0, 64))
         else:
             self.loc = loc
 
         self.x = self.vector[0]
         self.y = self.vector[1]
         self.thickness = thickness
-        self.length = np.random.uniform(32, 64) if length is None else length
+        self.length = self.rng.uniform(32, 64) if length is None else length
         self.wiggle = wiggle
 
     def apply(self, wafer):
         line_points = []
         for i in range(int(self.length)):
-            x_point = (self.loc[0] + i * self.x) + np.random.uniform(-self.wiggle, self.wiggle)
-            y_point = (self.loc[1] + i * self.y) + np.random.uniform(-self.wiggle, self.wiggle)
+            x_point = (self.loc[0] + i * self.x) + self.rng.uniform(-self.wiggle, self.wiggle)
+            y_point = (self.loc[1] + i * self.y) + self.rng.uniform(-self.wiggle, self.wiggle)
             if not (0 <= x_point < wafer.grid_size):
                 self.x *= -1
             if not (0 <= y_point < wafer.grid_size):
@@ -259,7 +282,7 @@ class Donut:
 
     def apply(self, wafer):
         dist = wafer.dist
-        if np.random.random() > self.center_prob:  # randomizing prob of an offset center
+        if self.rng.random() > self.center_prob:  # randomizing prob of an offset center
             offset_prob = self.offset * wafer.radius
             offset_x = self.rng.uniform(-offset_prob, offset_prob)
             offset_y = self.rng.uniform(-offset_prob, offset_prob)
@@ -268,11 +291,13 @@ class Donut:
         falloff = wafer.radius * self.falloff_perc
         donut_mask = ((dist > self.inner_rad - falloff)
                       & (dist < self.outer_rad + falloff))  # mask enlarged by falloff for a gradient
+
+        # normalizing by falloff, gives gradient on inner and outer side of donut
         inner_defect = np.clip((dist - self.inner_rad - falloff) / falloff, 0, 1)
         outer_defect = np.clip((self.outer_rad + falloff - dist) / falloff, 0, 1)
-        edge_fade = np.minimum(inner_defect, outer_defect)
+        edge_fade = np.minimum(inner_defect, outer_defect)  # picks minimum out of the 2
 
-        local_defect = self.defect_rate * edge_fade
+        local_defect = self.defect_rate * edge_fade  # applying edge_fade to change defect_rate across donut
         rand_vals = self.rng.random((wafer.grid_size, wafer.grid_size))
         final_mask = donut_mask & (rand_vals < local_defect) & (wafer.map == DieState.GOOD)
         wafer.map[final_mask] = DieState.DEFECTIVE
@@ -282,7 +307,7 @@ class NearFull:
 
     def __init__(self, rng, defect_rate=None):
         self.rng = rng
-        self.defect_rate = np.random.uniform(0.8, 0.99) if defect_rate is None else defect_rate
+        self.defect_rate = self.rng.uniform(0.8, 0.99) if defect_rate is None else defect_rate
 
     def apply(self, wafer):
         rand_vals = self.rng.random((wafer.grid_size, wafer.grid_size))
